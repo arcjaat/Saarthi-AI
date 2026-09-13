@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.saarthi.ai.redaction.SensitiveDataRedactorTest" tests="8" skipped="0" failures="0" errors="0" timestamp="2026-09-13T12:52:11.481Z" hostname="DESKTOP-166TB14" time="0.039">
+  <properties/>
+  <testcase name="testGenericLongNumberRedaction" classname="com.saarthi.ai.redaction.SensitiveDataRedactorTest" time="0.027"/>
+  <testcase name="testPanRedaction" classname="com.saarthi.ai.redaction.SensitiveDataRedactorTest" time="0.001"/>
+  <testcase name="testPhoneNumberRedaction" classname="com.saarthi.ai.redaction.SensitiveDataRedactorTest" time="0.0"/>
+  <testcase name="testCurrencyAndBalanceRedaction" classname="com.saarthi.ai.redaction.SensitiveDataRedactorTest" time="0.001"/>
+  <testcase name="testCardNumberRedaction" classname="com.saarthi.ai.redaction.SensitiveDataRedactorTest" time="0.001"/>
+  <testcase name="testUpiIdRedaction" classname="com.saarthi.ai.redaction.SensitiveDataRedactorTest" time="0.0"/>
+  <testcase name="testCleanTextNotModified" classname="com.saarthi.ai.redaction.SensitiveDataRedactorTest" time="0.0"/>
+  <testcase name="testAadhaarRedaction" classname="com.saarthi.ai.redaction.SensitiveDataRedactorTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

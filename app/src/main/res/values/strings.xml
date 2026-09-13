@@ -1,0 +1,11 @@
+<resources>
+    <string name="app_name">Saarthi AI</string>
+    <string name="accessibility_service_label">Saarthi AI Companion</string>
+    <string name="accessibility_service_description">Saarthi reads button labels and UI positions on your screen to guide you with voice instructions and glowing highlight boxes. All screen analysis is performed 100% locally on your device via Gemini Nano. No personal information, balances, or passwords are ever saved or transmitted to the cloud.</string>
+    <string name="permission_overlay_title">Display Over Other Apps</string>
+    <string name="permission_overlay_desc">Required to draw the glowing guidance box and the floating microphone companion on top of your apps.</string>
+    <string name="permission_accessibility_title">Accessibility Service</string>
+    <string name="permission_accessibility_desc">Required to read button names and coordinates so Saarthi can point you to the right button.</string>
+    <string name="permission_audio_title">Microphone Access</string>
+    <string name="permission_audio_desc">Required so you can speak to Saarthi in your mother tongue.</string>
+</resources>

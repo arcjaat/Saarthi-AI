@@ -1,0 +1,12 @@
+R_DEF: Internal format may change without notice
+local
+string accessibility_service_description
+string accessibility_service_label
+string app_name
+string permission_accessibility_desc
+string permission_accessibility_title
+string permission_audio_desc
+string permission_audio_title
+string permission_overlay_desc
+string permission_overlay_title
+xml accessibility_service_config
