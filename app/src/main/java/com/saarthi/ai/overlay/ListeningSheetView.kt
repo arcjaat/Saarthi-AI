@@ -4,17 +4,20 @@ import android.animation.ValueAnimator
 import android.content.Context
 import android.graphics.*
 import android.util.AttributeSet
+import android.view.MotionEvent
 import android.view.View
 import android.view.animation.LinearInterpolator
 
 /**
  * The voice listening overlay sheet displayed when the user taps the floating bubble.
  *
- * Appears as an elevated bottom card over a dimmed screen showing:
- * - "Saarthi is Listening... बोलिए" header
- * - Animated warm amber waveform bars (driven by real-time audio amplitude)
- * - Real-time speech transcription text
- * - A large "Cancel / बंद करें" button
+ * Designed specifically for older adults:
+ * - Proper DP-scaled typography and touch targets.
+ * - Prominent top-right '✕' dismiss button + bottom 'Cancel' button.
+ * - Animated waveform bars.
+ * - Live speech transcription display.
+ * - Quick Action Chips: allows tapping common actions (Check Balance, Send Money, Scan QR)
+ *   even in noisy environments or without speaking.
  */
 class ListeningSheetView @JvmOverloads constructor(
     context: Context,
@@ -22,42 +25,47 @@ class ListeningSheetView @JvmOverloads constructor(
     defStyleAttr: Int = 0
 ) : View(context, attrs, defStyleAttr) {
 
+    private val density = resources.displayMetrics.density
+
     // Colors
     private val sapphireBlue = Color.parseColor("#0F294A")
     private val warmAmber = Color.parseColor("#F59E0B")
-    private val warmAmberLight = Color.parseColor("#FEF3C7")
+    private val warmAmberGlow = Color.parseColor("#FEF3C7")
     private val cardWhite = Color.WHITE
     private val textDark = Color.parseColor("#0B192C")
-    private val textSecondary = Color.parseColor("#334155")
-    private val dimBackground = Color.argb(100, 0, 0, 0)
+    private val textSecondary = Color.parseColor("#475569")
+    private val dimBackground = Color.argb(140, 0, 0, 0)
     private val cancelGrey = Color.parseColor("#E2E8F0")
-    private val cancelText = Color.parseColor("#334155")
+    private val cancelText = Color.parseColor("#1E293B")
+    private val chipBg = Color.parseColor("#F1F5F9")
+    private val chipBorder = Color.parseColor("#CBD5E1")
 
     // Paints
     private val dimPaint = Paint().apply { color = dimBackground }
 
     private val cardPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = cardWhite
-        setShadowLayer(20f, 0f, -8f, Color.argb(60, 0, 0, 0))
+        setShadowLayer(24f * density, 0f, -6f * density, Color.argb(80, 0, 0, 0))
     }
 
     private val headerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = sapphireBlue
-        textSize = 52f // ~24sp
+        textSize = 22f * density
         typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        textAlign = Paint.Align.LEFT
+    }
+
+    private val statusPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = textSecondary
+        textSize = 15f * density
+        typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
         textAlign = Paint.Align.CENTER
     }
 
     private val transcriptionPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = textDark
-        textSize = 44f // ~20sp
-        typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
-        textAlign = Paint.Align.CENTER
-    }
-
-    private val statusPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = textSecondary
-        textSize = 36f // ~16sp
+        textSize = 17f * density
+        typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
         textAlign = Paint.Align.CENTER
     }
 
@@ -72,12 +80,40 @@ class ListeningSheetView @JvmOverloads constructor(
 
     private val cancelTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = cancelText
-        textSize = 44f
+        textSize = 16f * density
         typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
         textAlign = Paint.Align.CENTER
     }
 
-    // State
+    private val closeCirclePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.parseColor("#F1F5F9")
+    }
+
+    private val closeXPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = textSecondary
+        style = Paint.Style.STROKE
+        strokeWidth = 3f * density
+        strokeCap = Paint.Cap.ROUND
+    }
+
+    private val chipBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = chipBg
+    }
+
+    private val chipBorderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = chipBorder
+        style = Paint.Style.STROKE
+        strokeWidth = 1.5f * density
+    }
+
+    private val chipTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = sapphireBlue
+        textSize = 13f * density
+        typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        textAlign = Paint.Align.CENTER
+    }
+
+    // Dynamic State
     var transcriptionText: String = ""
         set(value) {
             field = value
@@ -94,25 +130,24 @@ class ListeningSheetView @JvmOverloads constructor(
         set(value) {
             field = value
             if (value) {
-                statusText = "Processing... समझ रहा हूँ"
+                statusText = "Processing... स्क्रीन पर बटन ढूंढ रहे हैं"
             }
             invalidate()
         }
 
-    /** Normalized audio amplitude [0.0, 1.0] for waveform visualization */
-    var amplitude: Float = 0f
+    var amplitude: Float = 0.2f
         set(value) {
-            field = value.coerceIn(0f, 1f)
+            field = value.coerceIn(0.1f, 1f)
             invalidate()
         }
 
-    // Waveform bar animation
+    // Waveform
     private val barCount = 7
     private val barAmplitudes = FloatArray(barCount) { 0.3f }
     private var animPhase = 0f
 
     private val waveAnimator = ValueAnimator.ofFloat(0f, 360f).apply {
-        duration = 1500L
+        duration = 1400L
         repeatCount = ValueAnimator.INFINITE
         interpolator = LinearInterpolator()
         addUpdateListener { anim ->
@@ -124,8 +159,22 @@ class ListeningSheetView @JvmOverloads constructor(
 
     // Callbacks
     var onCancelTapped: (() -> Unit)? = null
+    var onQuickActionTapped: ((String) -> Unit)? = null
 
-    private var cancelButtonRect = RectF()
+    // Touch Target Rectangles
+    private val closeButtonRect = RectF()
+    private val cancelButtonRect = RectF()
+    private val chipRects = mutableListOf<RectF>()
+    private val quickActionIntents = listOf(
+        "Check Bank Balance",
+        "Send Money",
+        "Scan QR Code"
+    )
+    private val quickActionLabels = listOf(
+        "💳 बैलेंस देखें",
+        "💸 पैसे भेजें",
+        "📷 QR स्कैन"
+    )
 
     init {
         setLayerType(LAYER_TYPE_SOFTWARE, null)
@@ -145,7 +194,7 @@ class ListeningSheetView @JvmOverloads constructor(
         for (i in 0 until barCount) {
             val phase = animPhase + (i * 360f / barCount)
             val sinWave = (Math.sin(Math.toRadians(phase.toDouble())).toFloat() + 1f) / 2f
-            barAmplitudes[i] = 0.2f + (sinWave * 0.6f) + (amplitude * 0.4f)
+            barAmplitudes[i] = 0.2f + (sinWave * 0.4f) + (amplitude * 0.4f)
         }
     }
 
@@ -155,29 +204,41 @@ class ListeningSheetView @JvmOverloads constructor(
         val w = width.toFloat()
         val h = height.toFloat()
 
-        // ── 1. Dim background ────────────────────────────────────────
+        // 1. Dim background
         canvas.drawRect(0f, 0f, w, h, dimPaint)
 
-        // ── 2. Bottom card ───────────────────────────────────────────
-        val cardHeight = h * 0.38f
+        // 2. Bottom Card: min 380dp tall or 48% screen height
+        val cardHeight = Math.max(390f * density, h * 0.48f)
         val cardTop = h - cardHeight
-        val cardRect = RectF(0f, cardTop, w, h)
+        val cardRect = RectF(0f, cardTop, w, h + 50f * density)
 
-        canvas.drawRoundRect(
-            RectF(0f, cardTop, w, h + 40f), // Extend below screen for rounded corners
-            40f, 40f,
-            cardPaint
-        )
+        canvas.drawRoundRect(cardRect, 32f * density, 32f * density, cardPaint)
 
-        // ── 3. Header text ───────────────────────────────────────────
-        val headerY = cardTop + 65f
-        canvas.drawText("Saarthi is Listening...", w / 2, headerY, headerPaint)
+        // 3. Header Title & Top Close '✕' Button
+        val headerY = cardTop + 42f * density
+        canvas.drawText("Saarthi is Listening...", 24f * density, headerY, headerPaint)
 
-        // ── 4. Waveform bars ─────────────────────────────────────────
-        val barAreaTop = headerY + 30f
-        val barMaxHeight = 80f
-        val barWidth = 18f
-        val barSpacing = 14f
+        // Top Close '✕' Button (48dp x 48dp touch target)
+        val closeBtnSize = 36f * density
+        val closeRight = w - 20f * density
+        val closeLeft = closeRight - closeBtnSize
+        val closeTop = cardTop + 18f * density
+        val closeBottom = closeTop + closeBtnSize
+        closeButtonRect.set(closeLeft - 6f * density, closeTop - 6f * density, closeRight + 6f * density, closeBottom + 6f * density)
+
+        val closeCx = (closeLeft + closeRight) / 2
+        val closeCy = (closeTop + closeBottom) / 2
+        canvas.drawCircle(closeCx, closeCy, closeBtnSize / 2, closeCirclePaint)
+
+        val xRadius = 7f * density
+        canvas.drawLine(closeCx - xRadius, closeCy - xRadius, closeCx + xRadius, closeCy + xRadius, closeXPaint)
+        canvas.drawLine(closeCx + xRadius, closeCy - xRadius, closeCx - xRadius, closeCy + xRadius, closeXPaint)
+
+        // 4. Waveform Bars
+        val barAreaTop = cardTop + 72f * density
+        val barMaxHeight = 44f * density
+        val barWidth = 8f * density
+        val barSpacing = 8f * density
         val totalBarsWidth = barCount * barWidth + (barCount - 1) * barSpacing
         val barStartX = (w - totalBarsWidth) / 2
 
@@ -186,51 +247,90 @@ class ListeningSheetView @JvmOverloads constructor(
             val x = barStartX + i * (barWidth + barSpacing)
             val barTop = barAreaTop + (barMaxHeight - barHeight) / 2
             val barRect = RectF(x, barTop, x + barWidth, barTop + barHeight)
-            barPaint.alpha = (180 + barAmplitudes[i] * 75).toInt()
+            barPaint.alpha = (160 + barAmplitudes[i] * 95).toInt().coerceIn(160, 255)
             canvas.drawRoundRect(barRect, barWidth / 2, barWidth / 2, barPaint)
         }
 
-        // ── 5. Status text ───────────────────────────────────────────
-        val statusY = barAreaTop + barMaxHeight + 40f
+        // 5. Status text
+        val statusY = barAreaTop + barMaxHeight + 28f * density
         canvas.drawText(statusText, w / 2, statusY, statusPaint)
 
-        // ── 6. Transcription text ────────────────────────────────────
+        // 6. Real-time Live Transcription Text
+        val transY = statusY + 28f * density
         if (transcriptionText.isNotBlank()) {
-            val transY = statusY + 50f
-            // Truncate if too long for single line
-            val displayed = if (transcriptionText.length > 40) {
-                "..." + transcriptionText.takeLast(37)
+            val displayed = if (transcriptionText.length > 36) {
+                "\"..." + transcriptionText.takeLast(33) + "\""
             } else {
-                transcriptionText
+                "\"$transcriptionText\""
             }
             canvas.drawText(displayed, w / 2, transY, transcriptionPaint)
+        } else {
+            canvas.drawText("(Speak in Hindi, English, or your regional language)", w / 2, transY, statusPaint)
         }
 
-        // ── 7. Cancel button ─────────────────────────────────────────
-        val cancelWidth = 280f
-        val cancelHeight = 60f
-        val cancelLeft = (w - cancelWidth) / 2
-        val cancelTop = h - cancelHeight - 50f
-        cancelButtonRect = RectF(cancelLeft, cancelTop, cancelLeft + cancelWidth, cancelTop + cancelHeight)
+        // 7. Quick Action Chips (Tap to ask immediately without speech)
+        val chipsTop = transY + 22f * density
+        val chipHeight = 44f * density
+        val chipSpacing = 10f * density
+        val chipWidth = (w - (48f * density) - (chipSpacing * 2)) / 3
 
-        canvas.drawRoundRect(cancelButtonRect, 30f, 30f, cancelBgPaint)
-        canvas.drawText("Cancel • बंद करें", w / 2, cancelTop + 42f, cancelTextPaint)
+        chipRects.clear()
+        for (i in quickActionLabels.indices) {
+            val cx = 24f * density + i * (chipWidth + chipSpacing)
+            val rect = RectF(cx, chipsTop, cx + chipWidth, chipsTop + chipHeight)
+            chipRects.add(rect)
+
+            canvas.drawRoundRect(rect, 16f * density, 16f * density, chipBgPaint)
+            canvas.drawRoundRect(rect, 16f * density, 16f * density, chipBorderPaint)
+
+            val textCenterY = chipsTop + (chipHeight / 2) + 5f * density
+            canvas.drawText(quickActionLabels[i], rect.centerX(), textCenterY, chipTextPaint)
+        }
+
+        // 8. Bottom Cancel Button (Properly positioned above navigation bar)
+        val cancelWidth = w - 48f * density
+        val cancelHeight = 52f * density
+        val cancelLeft = 24f * density
+        val cancelTop = cardTop + cardHeight - cancelHeight - 34f * density
+        cancelButtonRect.set(cancelLeft, cancelTop, cancelLeft + cancelWidth, cancelTop + cancelHeight)
+
+        canvas.drawRoundRect(cancelButtonRect, 18f * density, 18f * density, cancelBgPaint)
+        canvas.drawText("Cancel • बंद करें", w / 2, cancelTop + (cancelHeight / 2) + 6f * density, cancelTextPaint)
     }
 
-    override fun onTouchEvent(event: android.view.MotionEvent): Boolean {
-        if (event.action == android.view.MotionEvent.ACTION_UP) {
-            if (cancelButtonRect.contains(event.x, event.y)) {
+    override fun onTouchEvent(event: MotionEvent): Boolean {
+        if (event.action == MotionEvent.ACTION_UP) {
+            val x = event.x
+            val y = event.y
+
+            // Top close button
+            if (closeButtonRect.contains(x, y)) {
                 onCancelTapped?.invoke()
                 return true
             }
-            // Tap on upper dimmed area outside bottom card to dismiss
-            val cardHeight = height.toFloat() * 0.38f
+
+            // Bottom cancel button
+            if (cancelButtonRect.contains(x, y)) {
+                onCancelTapped?.invoke()
+                return true
+            }
+
+            // Quick action chips
+            for (i in chipRects.indices) {
+                if (chipRects[i].contains(x, y)) {
+                    onQuickActionTapped?.invoke(quickActionIntents[i])
+                    return true
+                }
+            }
+
+            // Tap on upper dimmed background to dismiss
+            val cardHeight = Math.max(390f * density, height.toFloat() * 0.48f)
             val cardTop = height.toFloat() - cardHeight
-            if (event.y < cardTop) {
+            if (y < cardTop) {
                 onCancelTapped?.invoke()
                 return true
             }
         }
-        return true // Consume all touch events to prevent pass-through
+        return true
     }
 }

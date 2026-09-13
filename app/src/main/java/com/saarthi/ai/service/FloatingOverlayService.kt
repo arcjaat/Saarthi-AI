@@ -20,18 +20,18 @@ import kotlinx.coroutines.*
 /**
  * The heart of Saarthi AI — the Foreground Service that ties together:
  *
- *   Floating Bubble → Voice Recording → Bhashini STT → Gemini Nano → Highlight Overlay → TTS Guidance
+ *   Floating Bubble → Voice Recording → Speech STT → Gemini Nano → Highlight Overlay → TTS Guidance
  *
  * LIFECYCLE:
  * 1. Started by MainActivity after all permissions are granted
  * 2. Runs as a foreground service with a persistent notification (+ Kill Switch)
  * 3. Shows the floating mic bubble via OverlayManager
- * 4. On bubble tap: records voice → transcribes → runs AI inference → highlights target
+ * 4. On bubble tap: records voice or accepts quick action chip → runs AI inference → highlights target
  * 5. Stopped via Kill Switch (notification action or dashboard button)
  *
  * PRIVACY ENFORCEMENT:
  * - All screen data is volatile (RAM only), destroyed after each inference cycle
- * - Bhashini receives ONLY audio bytes; screen tree is NEVER sent to cloud
+ * - Zero cloud screen telemetry
  * - On service stop, all overlays, models, and audio resources are released
  */
 class FloatingOverlayService : Service() {
@@ -44,6 +44,7 @@ class FloatingOverlayService : Service() {
 
         // Auto-dismiss highlight after 12 seconds
         private const val HIGHLIGHT_AUTO_DISMISS_MS = 12_000L
+        private const val SPEECH_TIMEOUT_MS = 8_000L
     }
 
     // Core components
@@ -108,7 +109,7 @@ class FloatingOverlayService : Service() {
         // 4. Initialize Gemini Nano in background
         serviceScope.launch {
             val aiReady = inferenceOrchestrator?.initialize() ?: false
-            Log.i(TAG, if (aiReady) "✓ Gemini Nano ready" else "✗ Gemini Nano unavailable")
+            Log.i(TAG, if (aiReady) "✓ Gemini Nano ready" else "✗ Gemini Nano fallback active")
         }
 
         // 5. Show the floating bubble
@@ -133,21 +134,8 @@ class FloatingOverlayService : Service() {
         }
     }
 
-    // ── Main Voice → AI → Highlight Pipeline ─────────────────────────
+    // ── Main Voice / Quick Action Pipeline ────────────────────────────
 
-    /**
-     * The core user interaction flow:
-     *
-     * 1. User taps floating bubble
-     * 2. Show listening sheet with waveform
-     * 3. Record audio via microphone
-     * 4. Send audio to Bhashini for transcription (audio ONLY, no screen data)
-     * 5. Feed transcribed intent + redacted screen tree to Gemini Nano
-     * 6. Parse AI response for target coordinates
-     * 7. Draw glowing highlight over target button
-     * 8. Speak guidance aloud via TTS
-     * 9. Destroy all volatile data
-     */
     private fun startListeningFlow() {
         isListening = true
 
@@ -162,31 +150,36 @@ class FloatingOverlayService : Service() {
             overlayManager?.listeningSheet?.onCancelTapped = {
                 stopListeningFlow()
             }
+            overlayManager?.listeningSheet?.onQuickActionTapped = { actionIntent ->
+                Log.i(TAG, "Quick action chip tapped: \"$actionIntent\"")
+                voiceClient?.stopRecording()
+                executeIntentFlow(actionIntent)
+            }
         }
 
-        // Start recording and processing
+        // Start recording with speech timeout guard
         serviceScope.launch {
             try {
-                // ── STEP 1: Record & Transcribe ──────────────────────
-                Log.d(TAG, "Step 1: Recording voice...")
+                Log.d(TAG, "Step 1: Listening for voice input...")
 
-                // Start recording in background, auto-stop after silence or max duration
-                val transcriptionResult = voiceClient?.recordAndTranscribe(
-                    language = userLanguage,
-                    onPartialResult = { partial ->
-                        mainHandler.post {
-                            overlayManager?.updateTranscription(partial)
+                val transcriptionResult = withTimeoutOrNull(SPEECH_TIMEOUT_MS) {
+                    voiceClient?.recordAndTranscribe(
+                        language = userLanguage,
+                        onPartialResult = { partial ->
+                            mainHandler.post {
+                                overlayManager?.updateTranscription(partial)
+                            }
                         }
-                    }
-                )
+                    )
+                }
 
                 if (transcriptionResult == null || !transcriptionResult.success) {
-                    Log.w(TAG, "Transcription failed: ${transcriptionResult?.error}")
+                    val errorMsg = transcriptionResult?.error ?: "कृपया दोबारा बोलें या नीचे विकल्प चुनें"
+                    Log.w(TAG, "Transcription failed or timed out: $errorMsg")
                     mainHandler.post {
-                        overlayManager?.listeningSheet?.statusText =
-                            "Could not understand. Please try again."
+                        overlayManager?.listeningSheet?.statusText = errorMsg
                     }
-                    delay(2000)
+                    delay(2500)
                     mainHandler.post { stopListeningFlow() }
                     return@launch
                 }
@@ -196,21 +189,31 @@ class FloatingOverlayService : Service() {
                     ?: ""
 
                 Log.d(TAG, "Transcribed intent: \"$userIntent\"")
+                executeIntentFlow(userIntent)
 
+            } catch (e: Exception) {
+                Log.e(TAG, "Voice pipeline error: ${e.message}", e)
+                mainHandler.post { stopListeningFlow() }
+            }
+        }
+    }
+
+    /**
+     * Executes the screen parse, AI inference, and highlight drawing for any given user intent.
+     */
+    private fun executeIntentFlow(userIntent: String) {
+        serviceScope.launch {
+            try {
                 mainHandler.post {
-                    overlayManager?.updateTranscription(
-                        transcriptionResult.originalText ?: userIntent
-                    )
+                    overlayManager?.updateTranscription(userIntent)
                     overlayManager?.setListeningProcessing(true)
                 }
 
-                // ── STEP 2: AI Inference (Screen Parse + Gemini Nano) ─
-                Log.d(TAG, "Step 2: Running AI inference...")
-
+                Log.d(TAG, "Step 2: Running AI inference for intent: \"$userIntent\"")
                 val inferenceResult = inferenceOrchestrator?.processUserIntent(userIntent)
                     ?: InferenceResult.Error("Orchestrator not initialized")
 
-                // ── STEP 3: Handle Result ────────────────────────────
+                // Step 3: Dismiss listening sheet and highlight target
                 mainHandler.post {
                     overlayManager?.hideListeningSheet()
                     overlayManager?.bubbleView?.isActive = false
@@ -222,7 +225,6 @@ class FloatingOverlayService : Service() {
                         val target = inferenceResult.target
                         Log.i(TAG, "✓ Target found! Drawing highlight at ${target.bounds}")
 
-                        // Draw the glowing highlight
                         mainHandler.post {
                             overlayManager?.showHighlight(
                                 bounds = target.bounds,
@@ -231,13 +233,11 @@ class FloatingOverlayService : Service() {
                             )
                         }
 
-                        // Speak the guidance
                         voiceClient?.speak(
                             text = target.guidanceText,
                             language = userLanguage
                         )
 
-                        // Auto-dismiss highlight after timeout
                         mainHandler.postDelayed({
                             overlayManager?.hideHighlight()
                         }, HIGHLIGHT_AUTO_DISMISS_MS)
@@ -267,9 +267,8 @@ class FloatingOverlayService : Service() {
                         )
                     }
                 }
-
             } catch (e: Exception) {
-                Log.e(TAG, "Pipeline error: ${e.message}", e)
+                Log.e(TAG, "Error executing intent flow: ${e.message}", e)
                 mainHandler.post { stopListeningFlow() }
             }
         }
@@ -324,32 +323,23 @@ class FloatingOverlayService : Service() {
 
     // ── Shutdown ──────────────────────────────────────────────────────
 
-    /**
-     * Complete cleanup — removes all overlays, releases all resources,
-     * cancels all coroutines, and stops the foreground service.
-     */
     private fun shutdownEverything() {
         Log.i(TAG, "═══ Shutting down Saarthi ═══")
 
-        // Cancel all async work
         serviceScope.cancel()
 
-        // Remove all overlays
         mainHandler.post {
             overlayManager?.removeAllOverlays()
         }
 
-        // Release voice resources
         voiceClient?.release()
         voiceClient = null
 
-        // Release AI resources and volatile data
         inferenceOrchestrator?.release()
         inferenceOrchestrator = null
 
         overlayManager = null
 
-        // Stop foreground service
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
 

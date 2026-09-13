@@ -10,9 +10,17 @@
     <!-- Internet access strictly for Bhashini voice transcription (NO screen telemetry) -->
     <uses-permission android:name="android.permission.INTERNET" />
 
-    <!-- Foreground service support for persistent companion overlay -->
+    <!-- Foreground service support for persistent companion overlay and microphone -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+
+    <!-- Query speech recognition services on Android 11+ -->
+    <queries>
+        <intent>
+            <action android:name="android.speech.RecognitionService" />
+        </intent>
+    </queries>
 
     <application
         android:name=".SaarthiApplication"
@@ -55,7 +63,7 @@
             android:name=".service.FloatingOverlayService"
             android:enabled="true"
             android:exported="false"
-            android:foregroundServiceType="specialUse">
+            android:foregroundServiceType="specialUse|microphone">
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Elderly accessibility visual guidance overlay" />
